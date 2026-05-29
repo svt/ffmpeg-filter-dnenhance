@@ -1,0 +1,8 @@
+# cargo + DFN source clone produced by scripts/build-libdf.sh
+build/
+
+# macOS / IDE noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
