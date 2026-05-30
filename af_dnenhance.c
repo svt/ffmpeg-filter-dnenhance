@@ -10,6 +10,7 @@
 #include <strings.h>
 #include <unistd.h>
 
+#include "libavutil/avassert.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "avfilter.h"
@@ -49,12 +50,13 @@ typedef struct DnEnhanceContext {
     char  *log_level;          // libdf log level string
     int    lookahead_hops;     // priming-discard + EOF-drain count
 
-    // libdf dynamic linkage
+    // libdf dynamic linkage. df_set_atten_lim isn't loaded — df_create takes
+    // the attenuation limit at construction and we don't expose a runtime
+    // update path, so the setter would be dead weight.
     void  *libdf_handle;
     void *(*df_create)(const char *, float, const char *);
     size_t (*df_get_frame_length)(void *);
     float  (*df_process_frame)(void *, float *, float *);
-    void   (*df_set_atten_lim)(void *, float);
     void   (*df_set_post_filter_beta)(void *, float);
     void   (*df_free)(void *);
 
@@ -173,8 +175,6 @@ static int open_libdf(AVFilterContext *ctx)
                         (void **)&s->df_get_frame_length)) < 0) return ret;
     if ((ret = load_sym(ctx, s->libdf_handle, "df_process_frame",
                         (void **)&s->df_process_frame)) < 0) return ret;
-    if ((ret = load_sym(ctx, s->libdf_handle, "df_set_atten_lim",
-                        (void **)&s->df_set_atten_lim)) < 0) return ret;
     if ((ret = load_sym(ctx, s->libdf_handle, "df_set_post_filter_beta",
                         (void **)&s->df_set_post_filter_beta)) < 0) return ret;
     if ((ret = load_sym(ctx, s->libdf_handle, "df_free",
@@ -278,10 +278,13 @@ static int push_hop(AVFilterContext *ctx, const float *in_samples,
                         (float *)in_samples,
                         (float *)out->extended_data[0]);
 
-    if (s->pts_count < DFN_PTS_QUEUE) {
-        s->pts_queue[(s->pts_head + s->pts_count) % DFN_PTS_QUEUE] = pts_in;
-        s->pts_count++;
-    }
+    // Unreachable in normal operation: DFN_PTS_QUEUE > DFN_LOOKAHEAD_MAX + 1,
+    // so the ring can never fill during priming or steady state. The assert
+    // turns any future misconfiguration (e.g. raising the lookahead cap) into
+    // a clear crash instead of silently corrupting output PTS.
+    av_assert0(s->pts_count < DFN_PTS_QUEUE);
+    s->pts_queue[(s->pts_head + s->pts_count) % DFN_PTS_QUEUE] = pts_in;
+    s->pts_count++;
 
     if (!s->primed) {
         if (s->pts_count <= s->lookahead_hops) {
@@ -334,6 +337,8 @@ static int handle_eof(AVFilterContext *ctx, int64_t pts)
     if (tail > 0) {
         AVFrame *partial = NULL;
         int ret = ff_inlink_consume_samples(inlink, 1, tail, &partial);
+        if (ret < 0)
+            return ret;
         if (ret > 0 && partial) {
             float *scratch = av_calloc(s->hop, sizeof(float));
             if (!scratch) {

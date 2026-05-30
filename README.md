@@ -22,7 +22,7 @@ This is a downstream patch against FFmpeg, in the same style as
 | Input | mono, `AV_SAMPLE_FMT_FLTP`, 48000 Hz |
 | Output | mono, `AV_SAMPLE_FMT_FLTP`, 48000 Hz |
 | Hop size | 480 samples (10 ms) |
-| Algorithmic latency | 20 ms (2 hops of DFN3 lookahead) |
+| Algorithmic latency | Set by the `lookahead` option. DFN3 standard: 20 ms (2 hops). DFN3-LL: 0 ms. |
 | Linkage | runtime via `dlopen` of `libdf.so` / `libdf.dylib` |
 
 The filter only accepts mono input. To enhance dialogue in a stereo or
@@ -139,8 +139,8 @@ ffmpeg -i in.wav -af "dnenhance" out.wav
 
 > **Note on `default-model`:** `libdf`'s build also embeds the same DFN3
 > tarball into `libdf.dylib` (~8 MB) via cargo's `default-model` feature,
-> which is transitively required by the `capi` feature on upstream's
-> v0.5.6/main. **That embedded copy is not reachable from the C API** —
+> which is transitively required by libdf's `capi` feature.
+> **That embedded copy is not reachable from the C API** —
 > `df_create(path, ...)` always opens the path from disk. So the
 > standalone tarball install is what's actually used; the embedded copy
 > is dead weight we accept until upstream restructures the feature flags.
@@ -213,12 +213,15 @@ ffmpeg -i in.wav \
 
 ## How it works
 
-DeepFilterNet 3 has a 2-hop algorithmic lookahead: a call to
-`df_process_frame(hop_N)` returns the enhanced version of `hop_(N-2)`. The
-first two outputs after startup are "enhanced zeros" from the model's
-cold-start buffer and are discarded; at end-of-stream the filter pushes two
-hops of silence to flush the model and emit the enhanced versions of the
-final two real hops.
+DeepFilterNet models have an algorithmic lookahead set by the
+`lookahead` option (call it `L`). A call to `df_process_frame(hop_N)`
+returns the enhanced version of `hop_(N-L)`. The first `L` outputs
+after startup are "enhanced zeros" from the model's cold-start buffer
+and are discarded; at end-of-stream the filter pushes `L` hops of
+silence to flush the model and emit the enhanced versions of the final
+`L` real hops. DFN3 standard has `L=2` (20 ms latency); DFN3-LL has
+`L=0`. Always set `lookahead` to match the model — using the wrong
+value silently corrupts timing at the start and end of the stream.
 
 If the input doesn't end on a hop boundary, the trailing partial hop is
 zero-padded to a full hop before being pushed through the model. The
