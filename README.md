@@ -159,9 +159,32 @@ ffmpeg -i mono_48k.wav \
 
 ```sh
 ffmpeg -i stereo_48k.wav \
-  -af "pan=mono|c0=0.707*c0+0.707*c1,dnenhance=model=/path/to/DFN3.tar.gz" \
+  -af "pan=mono|c0=0.707*c0+0.707*c1,dnenhance" \
   enhanced_mono.wav
 ```
+
+### Stereo in, stereo out — with sidechain ducking
+
+This is the production pattern used by `encore`: downmix → enhance →
+use the enhanced mono as a sidechain key to duck the background of the
+original stereo → layer the enhanced mono back into both channels.
+Preserves the stereo image of the music/ambience while making dialogue
+louder and cleaner. Listener preference matches the textbook: keep the
+source's stereo width, re-center the boosted dialogue.
+
+```sh
+ffmpeg -i in.wav -filter_complex "\
+[0:a]asplit=2[orig][m];\
+[m]pan=mono|c0=0.707*c0+0.707*c1,dnenhance,asplit=2[sc][fc];\
+[orig][sc]sidechaincompress=threshold=0.012:ratio=8:attack=100:release=1000[compr];\
+[compr][fc]amerge,pan=stereo|c0<c0+c2|c1<c1+c2[out]" \
+  -map "[out]" out.wav
+```
+
+The `sidechaincompress` knobs (`threshold`, `ratio`, `attack`,
+`release`) are perceptual — the values above are the defaults encore
+ships. Tune them down if the ducking feels too aggressive, or steepen
+them if dialogue still doesn't sit forward enough in busy mixes.
 
 ### Enhance the FC channel of a 5.1 file, keep the rest
 
