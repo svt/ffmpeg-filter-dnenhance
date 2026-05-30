@@ -76,13 +76,15 @@ Register the filter in `libavfilter/allfilters.c`:
 extern const FFFilter ff_af_dnenhance;
 ```
 
-Add `dnenhance_filter` to the audio filter list in `configure` (next to
-`af_dialoguenhance_filter`, `af_arnndn_filter`, etc.).
+FFmpeg's `configure` script auto-discovers filters by grepping
+`libavfilter/allfilters.c` for `extern const FFFilter ff_*;` lines, so
+no edit to `configure` or `--enable-filter=` flag is needed — the
+declaration above is enough to opt the filter into the default build.
 
-Then build:
+Then build with your usual flags:
 
 ```sh
-./configure --enable-filter=dnenhance --enable-gpl ...
+./configure --enable-gpl ...
 make -j$(nproc)
 ```
 
