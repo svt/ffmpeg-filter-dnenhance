@@ -21,7 +21,7 @@ if [[ ! -d "$DFN_REPO" ]]; then
 fi
 
 cd "$DFN_REPO"
-cargo build --release -p deep_filter --features "capi,default-model,tract"
+cargo build --lib --release -p deep_filter --features "capi,default-model,tract"
 
 mkdir -p "$LIB_OUT"
 case "$(uname -s)" in
