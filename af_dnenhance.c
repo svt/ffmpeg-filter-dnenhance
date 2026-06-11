@@ -109,7 +109,7 @@ static int query_formats(const AVFilterContext *ctx,
     static const enum AVSampleFormat sample_fmts[] = {
         AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_NONE
     };
-    int sample_rates[] = { 48000, -1 };
+    static const int sample_rates[] = { 48000, -1 };
     AVChannelLayout mono = AV_CHANNEL_LAYOUT_MONO;
     AVFilterChannelLayouts *layouts = NULL;
     int ret;
