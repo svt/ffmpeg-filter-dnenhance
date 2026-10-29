@@ -305,9 +305,26 @@ static int push_hop(AVFilterContext *ctx, const float *in_samples,
 static int push_hop_from_frame(AVFilterLink *inlink, AVFrame *in)
 {
     AVFilterContext *ctx = inlink->dst;
+    DnEnhanceContext *s = ctx->priv;
     const float *samples = (const float *)in->extended_data[0];
+    float *padded = NULL;
     int64_t pts = in->pts;
-    int ret = push_hop(ctx, samples, pts);
+    int ret;
+
+    // At EOF ff_inlink_consume_samples() hands back whatever is left, which
+    // can be shorter than a hop. push_hop() reads a full hop, so zero-pad.
+    if (in->nb_samples < s->hop) {
+        padded = av_calloc(s->hop, sizeof(float));
+        if (!padded) {
+            av_frame_free(&in);
+            return AVERROR(ENOMEM);
+        }
+        memcpy(padded, samples, in->nb_samples * sizeof(float));
+        samples = padded;
+    }
+
+    ret = push_hop(ctx, samples, pts);
+    av_free(padded);
     av_frame_free(&in);
     return ret;
 }
