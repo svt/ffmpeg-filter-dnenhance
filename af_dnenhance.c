@@ -305,9 +305,26 @@ static int push_hop(AVFilterContext *ctx, const float *in_samples,
 static int push_hop_from_frame(AVFilterLink *inlink, AVFrame *in)
 {
     AVFilterContext *ctx = inlink->dst;
+    DnEnhanceContext *s = ctx->priv;
     const float *samples = (const float *)in->extended_data[0];
+    float *padded = NULL;
     int64_t pts = in->pts;
-    int ret = push_hop(ctx, samples, pts);
+    int ret;
+
+    // At EOF ff_inlink_consume_samples() hands back whatever is left, which
+    // can be shorter than a hop. push_hop() reads a full hop, so zero-pad.
+    if (in->nb_samples < s->hop) {
+        padded = av_calloc(s->hop, sizeof(float));
+        if (!padded) {
+            av_frame_free(&in);
+            return AVERROR(ENOMEM);
+        }
+        memcpy(padded, samples, in->nb_samples * sizeof(float));
+        samples = padded;
+    }
+
+    ret = push_hop(ctx, samples, pts);
+    av_free(padded);
     av_frame_free(&in);
     return ret;
 }
@@ -327,35 +344,14 @@ static int drain_one_zero_hop(AVFilterContext *ctx)
 static int handle_eof(AVFilterContext *ctx, int64_t pts)
 {
     DnEnhanceContext *s = ctx->priv;
-    AVFilterLink *inlink = ctx->inputs[0];
 
     s->eof_pts = pts;
     s->draining = 1;
 
-    // Drain any sub-hop tail by zero-padding to a full hop.
-    int tail = ff_inlink_queued_samples(inlink);
-    if (tail > 0) {
-        AVFrame *partial = NULL;
-        int ret = ff_inlink_consume_samples(inlink, 1, tail, &partial);
-        if (ret < 0)
-            return ret;
-        if (ret > 0 && partial) {
-            float *scratch = av_calloc(s->hop, sizeof(float));
-            if (!scratch) {
-                av_frame_free(&partial);
-                return AVERROR(ENOMEM);
-            }
-            memcpy(scratch, partial->extended_data[0],
-                   partial->nb_samples * sizeof(float));
-            int64_t partial_pts = partial->pts;
-            av_frame_free(&partial);
-            ret = push_hop(ctx, scratch, partial_pts);
-            av_free(scratch);
-            if (ret < 0)
-                return ret;
-        }
-    }
-
+    // No sub-hop tail to handle here: ff_inlink_acknowledge_status() only
+    // reports EOF once the input queue is empty, and the short final frame
+    // has already been consumed by activate() and padded in
+    // push_hop_from_frame().
     s->drain_remaining = s->lookahead_hops;
     ff_filter_set_ready(ctx, 100);
     return 0;
