@@ -40,12 +40,33 @@ See the [Examples](#examples) below.
 | `log_level` | string | `"None"` | libdf log level (`None`, `Error`, `Warn`, `Info`, `Debug`, `Trace`). |
 | `lookahead` | int hops | `2` | Model algorithmic lookahead in 480-sample hops. **Must match the model**: DFN3 standard = `2` (20 ms latency), DFN3-LL = `0` (no latency). For other models, read `df_lookahead` and `conv_lookahead` from the tarball's `config.ini` and use the max. |
 
-## Building
+## Installation
 
-The build has two parts: build `libdf` from the DeepFilterNet repository,
-then patch and rebuild FFmpeg with the new filter.
+### Homebrew (recommended)
 
-### 1. Build `libdf`
+The easiest way to get the filter is [SVT's Homebrew tap][tap] (`svt/avtools`), which
+ships `libdf`, the DFN3 model and an FFmpeg build with `dnenhance`
+already patched in:
+
+```sh
+brew install svt/avtools/libdf svt/avtools/ffmpeg-encore
+ffmpeg -i in.wav -af "dnenhance" out.wav
+```
+
+No `model=` option or library path is needed (see
+[Model file resolution](#model-file-resolution)). This FFmpeg build also
+carries an EOF guard for `sidechaincompress`, which the
+[stereo sidechain example](#stereo-in-stereo-out--with-sidechain-ducking)
+benefits from.
+
+### Building from source
+
+If you don't use Homebrew, or want to add the filter to your own FFmpeg
+build, follow the steps below. The build has two parts: build `libdf`
+from the DeepFilterNet repository, then patch and rebuild FFmpeg with the
+new filter.
+
+#### 1. Build `libdf`
 
 ```sh
 ./scripts/build-libdf.sh
@@ -57,7 +78,7 @@ and copies the resulting shared library into `./build/lib/`.
 
 Requires a recent Rust toolchain (`rustup`).
 
-### 2. Patch FFmpeg
+#### 2. Patch FFmpeg
 
 ```sh
 cp af_dnenhance.c <your-ffmpeg-checkout>/libavfilter/
@@ -93,9 +114,10 @@ having `libdf` installed.
 
 ## Usage
 
-At runtime, point the dynamic loader at the `libdf` shared library you
-built in step 1 (the script copies it into `./build/lib/` relative to
-this repo's root):
+If you installed through Homebrew, `dnenhance` works out of the box. For
+a source build, point the dynamic loader at the `libdf` shared library
+you built in step 1 (the script copies it into `./build/lib/` relative
+to this repo's root):
 
 ```sh
 # Linux
@@ -188,6 +210,16 @@ The `sidechaincompress` knobs (`threshold`, `ratio`, `attack`,
 ships. Tune them down if the ducking feels too aggressive, or steepen
 them if dialogue still doesn't sit forward enough in busy mixes.
 
+> **FFmpeg note.** `dnenhance` emits its last `lookahead` hops after the
+> main input has ended. Upstream `sidechaincompress` closes its output at
+> the main input's EOF without draining its own buffers, so those hops
+> are dropped and the output ends short: 20 ms at the default lookahead,
+> and up to roughly 0.7 s under a loaded graph (e.g. parallel video
+> encodes). This affects upstream FFmpeg up to and including 9.0.2 (as of
+> writing). The Homebrew build above includes a fix. If you build FFmpeg
+> yourself, see the [tap's list of patches][tap-patches] for the
+> `sidechaincompress` fix to apply to `libavfilter/af_sidechaincompress.c`.
+
 ### Enhance the FC channel of a 5.1 file, keep the rest
 
 ```sh
@@ -238,3 +270,5 @@ version 2.1 or later (LGPL v2.1+).
 
 [dfn]: https://github.com/Rikorose/DeepFilterNet
 [proxy]: https://github.com/svt/ffmpeg-filter-proxy
+[tap]: https://github.com/svt/homebrew-avtools
+[tap-patches]: https://github.com/svt/homebrew-avtools#patches
